@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adding Wifi Control to a Dog-Door with ESPHome</title>
+</head>
+<body>
+  <h1>Adding Wifi Control to a Dog-Door with ESPHome</h1>
+  <nav>
+    <!-- <a href="../../">Home</a> -->
+    <!-- <a href="../">Projects</a> -->
+    <a href="https://youtu.be/E4WlUXrJgy4?si=BOEV5P4EIcMVtH9L">Home</a>
+    <a href="https://youtu.be/E4WlUXrJgy4?si=BOEV5P4EIcMVtH9L">Projects</a>
+  </nav>
+  <h2>Situation</h2>
+  <p>My parents' house has a electronic dog door made by <a href="https://www.hitecpet.com/">High Tech Pet</a>. The door relys on a radio collar to open and close. The collar is a bit unreliable, and the door is not very responsive. I wanted to add wifi control to the door so that my parents could open and close it from their phone if needed. Or maybe it would just be a cool party trick</p>
+  <img src="1.png" height="500">
+  <h2>Cracking it Open</h2>
+  <p>The actual reason that we had this thing off the wall is because the motor (that raises and lowers the door) appeared to be broken. I dissasembled the gearbox and found that one of the press-fit gears on the motor shaft was slipping. This meant that the motor wouldn't have enough torque to raise or lower the gate. There was nothing wrong with the motor itself. I epoxied the gear back onto the shaft after prepping the surface (yikes).</p>
+  <p>After getting inside, it was evident that the design was relatively simple. Motor driver circuitry + MCU on a Large.jpeg pcba and the motorized door. In the below photo, I had the motor removed because the epoxy was curing.</p>
+  <img src="2.png" height="500">
+  <h2>Security</h2>
+  <p>Of course this project was subjected to the normal flavor of scope creep. When my dad saw the dog door opened up on the kitchen counter, he realized it would be a great time to add a reed switch alarm contact. This would be an excellent way to detect if anyone is trying to enter through the dog door. I found a spot where the magnet and reed switch could be attatched to the door and mocked up a bracket with the nearest cardboard box.</p> 
+  <img src="4.png" height="500">  
+  <p>Sure. Booted up <a href="https://www.freecad.org/">Freecad</a> and designed a simple bracket to print. </p>
+  <img src="3.png" height="500">
+  <p>The mounting bracket was relatively simple. Just a couple holes for the threadforming fasteners to hold the magnetic contact in. I also added a circular mounting pad for a stronger neodynium magnet. This would allow me to replace the magnet supplied with the contact if the distance between the reed switch and the magnet were too far after final assembly.</p>
+  <img src="5.png" height="500">
+  <p>Naturally, the fastening adhesive of choice for me is hot glue. I like that I can easily put a drop of IPA on it to release it when needed. I routed the wires and verified that the switch was working by testing continuity when the door was opened/closed. Worked like a charm.</p>
+  <h2>Finding +5V</h2>
+  <p>Now for the real fun. I started poking around High Tech Pet's "REV-H" control board to find what I need. The design of their board is relatively simple: 2-layer pcb, Microchip mcu, some buttons (on, off, open) and some custom power electronics for the motor drive circuitry. Because I was home on vacation, I only had two mcus with me (is this normal?). </p>
+  <ul>
+    <li><a href="https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/">XIAO ESP32C6</a> </li>
+    <li><a href="https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/">XIAO ESP32C6</a> </li>
+  </ul>
+  <p>Not a very large selection, but very capable hardware for this applciation. This tiny board can be powered by USB so I started poking around for ground and +5v on this board. High Tech Pet's silk screen was not very helpful and didn't have any convenient test points.</p>
+  <img src="6.png" height="500">
+  <p>I found that they were using a 5v linear regulator to power the Microchip MCU. I tested this and found that the regulator is not powered when the off button is pressed. That's OK. It just means that our esp32 won't get power if someone turns the door off. I busted out the <a href="https://pine64.com/product/pinecil-smart-mini-portable-soldering-iron/">Pinecil</a> and soldered some extra alarm contact wire to get my voltage supply. High Tech Pet was generous with their VIA diameter. This allowed me to sneak some wire through them.</p>
+  <p>With power out of the way, the next issue was control. I decided that I wanted to replicate the "Open" button press with my esp32. I used the multimeter to determine what this button does when pressed. With the door open, pin 1 of the button sits at +5V. When the button is pressed, pin 1 is pulled to ground. I started getting a bit nervous at this point. The esp32 logic level is +3v3 (not 5v). I hadn't remembered to pack my transistors with me on this trip!</p>
+  <p>I found a PN2222A clone in an arduino kit that my younger brother had.This saved the day. </p>
+  <img src="7.png" height="500">
+  <p>PN2222A is a NPN transistor. I used it to pull the button pin to ground when the GPIO pin on the ESP32 is pulled high. This works because the button is connected to +5v and the other side of the button is connected to ground. When the GPIO pin is pulled high, it turns on the transistor and pulls the button pin to ground. This simulates a button press.</p>
+  <h2>Mocking up the ESP32</h2>
+  <p>I got the breadboard out and powered up the esp32. I connected PN2222A to GPIO0 and 2x LEDs to give a 1hz heartbeat blink and a "wifi-connected" status blink. I probably wouldn't have normally added these LEDs but I figured I would need to troubleshoot this hack remotely through my parents in the future. I consider that a CYA.</p>
+  <img src="8.png" height="500">
+  <p>I could pretend like I drew the schematic before building on the breadboard but we all know that didn't happen. Here's the schematic for clarity though.</p>
+  <img src="9.png" height="500">
+  <h2>ESPHome Prototyping</h2>
+  <p>I used <a href="https://web.esphome.io/">ESPHome web flashing tool</a> to provision the esp32 initially and begin testing on the breadboard. Chatgpt has gotten pretty good at rapidly spinning up esphome configurations. Of course I sooned realized that the c6 series espressif module is not supported by ESPhome yet. This guy had a <a href=https://adrianba.net/2024/12/01/esp32c6-and-home-assistant/">nice resource</a> that showed how to compile for the c6 mcu using espidf. I followed this general setup and it worked without issues.</p>
+  <p>Setup the ESPHome boilerplate:</p>
+  <pre><code>
+    esphome:
+    name: dog-door
+    friendly_name: Dog Door
+    project:
+      name: esphome.web
+      version: dev
+    platformio_options:
+      platform: https://github.com/mnowak32/platform-espressif32.git#boards/seeed_xiao_esp32c6
+
+    esp32:
+      board: seeed_xiao_esp32c6
+      flash_size: 4MB
+      variant: esp32c6
+      framework:
+        type: esp-idf
+        version: 5.2.1
+        platform_version: 6.1.17
+        sdkconfig_options:
+          CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+      
+
+    # Enable logging
+    logger:
+
+    # Enable Home Assistant API
+    api:
+
+    ota:
+      - platform: esphome
+
+    wifi:
+      ssid: !secret wifi_ssid
+      password: !secret wifi_password
+
+      # Enable fallback hotspot (captive portal) in case wifi connection fails
+      ap:
+        ssid: "Dog-Door Fallback Hotspot"
+
+    captive_portal:
+
+    dashboard_import:
+      package_import_url: github://esphome/firmware/esphome-web/esp32c3.yaml@main
+      import_full_config: true
+
+    web_server:
+    </code></pre>
+    <p>I set up the output pins for the LED and bjt. I also set up the simulated button press to hold for 0.5s just in case the dog door's firmware had any debouncing time:</p>
+    <code><pre>
+    # Define the GPIO as an output
+    output:
+      - platform: gpio
+        pin: GPIO0
+        id: gpio_out
+      - platform: gpio
+        pin: GPIO15  # Change to your LED pin
+        id: led_out
+      - platform: gpio
+        pin: GPIO1
+        id: net_led
+      - platform: gpio
+        pin: GPIO2
+        id: power_led
+    
+    # Create a switch to control the GPIO
+    button:
+      - platform: output
+        name: "Open Door"
+        output: gpio_out
+        duration: 0.5s
+    </pre></code>
+    <p>Finally, I added the blinking LED's for power on heartbeat and wifi connected:</p>
+    <code><pre>
+    # Blink the LED at 1Hz
+    interval:
+      - interval: 500ms
+        then:
+          - output.turn_on: led_out
+          - delay: 100ms
+          - output.turn_off: led_out
+      - interval: 500ms
+        then:
+          - output.turn_on: power_led
+          - delay: 100ms
+          - output.turn_off: power_led
+      - interval: 250ms
+        then:
+          - if:
+              condition:
+                wifi.connected:
+              then:
+                - output.turn_on: net_led
+                - delay: 100ms
+                - output.turn_off: net_led
+    </pre></code>
+    <p>I compiled this and flashed onto the esp32 after adding the wifi secrets. Looks good. It was time to do more soldering in my parent's kitchen.</p>
+    <h2>Modifying the PCBA</h2>
+    <p>I hot glued the esp32 c6 onto a bare spot on the control board. We didn't have any fine gauge wire at home so I removed the jacket from some scrap ethernet cable and untwisted the pairs. The solid-core wire inside CAT6 cable works really well for this application.</p>
+    <img src="10.png" height="500">
+    <p>I left long pig-tails on the LED's so I could route them out the side of the enclosure.</p>
+    <img src="11.png" height="500">
+    <p>Before reinstalling everything, I tested that I could open the door by executing commands against the ESPhome API for this switch and everything appeared to be working properly. At this point I wanted to Demo the gui control to anyone who would listen.</p>
+    <img src="12.png" height="500">
+    <h2>Buttoning it Up</h2>
+    <p>I started putting the door back together. I tidied up the new wire routing. I did end up using as much hot glue as the original manufacturer. Once the rear cover was back on, I made a beautiful cardboard fascia for the LED indicators:</p>
+    <img src="13.png" height="500">
+    <p>And of course added a clean button in Home Assistant:</p>
+    <img src="14.png" height="500">
+    <p>After installing the door, I realized we didn't even have wifi coverage where the door is.</p>
+
+
+
+</p>
+
+</body>
+</html>
