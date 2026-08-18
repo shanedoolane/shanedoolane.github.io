@@ -7,12 +7,18 @@
 </head>
 <body>
   <h1>About Me</h1>
+  <nav>
+    <a href="../index.html">Home</a>
+    <a href="../about/index.html">About</a>
+    <a href="../projects/index.html">Projects</a>
+    <a href="../economics/index.html">Economics</a>
+  </nav>
   <p>Highly-technical engineering program manager with extensive hardware + software experience in high voltage battery product design. Leader of broad, strategic scope from inception through mass production.</p>
   <hr>
   <h2>Work Experience</h2>
   
   <h3>Lunar Energy</h3>
-  <p>Senior TPM, Firmware (2024-2025)</p>
+  <p>Senior TPM, Firmware (2024-<span class="current-year">2025</span>)</p>
   <p>TPM, Firmware (2023-2024)</p>
   
   <h3>Tesla</h3>
@@ -23,7 +29,7 @@
 
 
   <h3>Optiag</h3>
-  <P>Founder (2021-2025)</P>
+  <p>Founder (2021-<span class="current-year">2025</span>)</p>
   
   <h3>Madtech</h3>  
   <P>Technical Lead (2019-2020)</P>
@@ -37,5 +43,12 @@
   <p>Undergraduate Research Grant Recipient, Triathlon, Formula Racing, ASME, SAE, Engineers for a Sustainable World, Urban Agriculture Initiative</p>
   <h4>Economics (2018-2022)</h4>
   <p>Focus in natural resources, economic sustainability, investment analysis, and derivative instruments</p>
+</body>
+  <script>
+    (function(){
+      var y = new Date().getFullYear();
+      document.querySelectorAll('.current-year').forEach(function(el){ el.textContent = y; });
+    })();
+  </script>
 </body>
 </html>

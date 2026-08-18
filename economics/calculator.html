@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Buy in Bulk vs Invest — Calculator</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:20px;max-width:760px}
+    label{display:block;margin-top:10px}
+    input[type=number]{width:140px}
+    .row{display:flex;gap:12px;align-items:center}
+    .result{margin-top:18px;padding:12px;border:1px solid #ddd;border-radius:6px;background:#fafafa}
+  </style>
+</head>
+<body>
+  <h1>Bulk vs Invest — Calculator</h1>
+  <nav>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Economics</a>
+  </nav>
+
+  <p>This simple calculator compares buying in bulk (paid today) vs buying single units over a time horizon. It uses a basic present-value approximation for ongoing single-item purchases and assumes bulk is purchased up-front.</p>
+
+  <form id="calc">
+    <fieldset>
+      <legend>Bulk / Pack</legend>
+      <label>Pack price: $ <input type="number" step="0.01" id="packPrice" value="20"></label>
+      <label>Uses per pack: <input type="number" step="1" id="usesPerPack" value="50"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Single item</legend>
+      <label>Single item price: $ <input type="number" step="0.01" id="singlePrice" value="1"></label>
+      <label>Uses per single item: <input type="number" step="1" id="usesPerSingle" value="1"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Usage & Time</legend>
+      <label>Uses per year: <input type="number" step="1" id="usesPerYear" value="100"></label>
+      <label>Time horizon (years): <input type="number" step="0.5" id="years" value="3"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Finance</legend>
+      <label>Discount / return rate (annual %): <input type="number" step="0.01" id="rate" value="5"></label>
+    </fieldset>
+
+    <p><button type="button" id="run">Calculate</button></p>
+  </form>
+
+  <div class="result" id="result" aria-live="polite"></div>
+
+  <script>
+    function pvOfAnnuity(payment, r, years){
+      if(years <= 0) return 0;
+      if(r === 0) return payment * years;
+      var rr = r;
+      return payment * (1 - Math.pow(1+rr, -years)) / rr;
+    }
+
+    function fmt(n){ return (Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+    document.getElementById('run').addEventListener('click', function(){
+      var packPrice = parseFloat(document.getElementById('packPrice').value)||0;
+      var usesPerPack = parseFloat(document.getElementById('usesPerPack').value)||1;
+      var singlePrice = parseFloat(document.getElementById('singlePrice').value)||0;
+      var usesPerSingle = parseFloat(document.getElementById('usesPerSingle').value)||1;
+      var usesPerYear = parseFloat(document.getElementById('usesPerYear').value)||0;
+      var years = parseFloat(document.getElementById('years').value)||1;
+      var ratePct = parseFloat(document.getElementById('rate').value)||0;
+      var r = ratePct/100;
+
+      var totalUses = usesPerYear * years;
+      var costPerUseSingle = singlePrice / usesPerSingle;
+      var costPerUsePack = packPrice / usesPerPack;
+
+      var packsNeeded = Math.ceil(totalUses / usesPerPack);
+      var totalBulkCost = packsNeeded * packPrice;
+
+      var totalSinglesCost = totalUses * costPerUseSingle; // total nominal cost
+
+      var annualSinglesCost = usesPerYear * costPerUseSingle;
+      var pvSingles = pvOfAnnuity(annualSinglesCost, r, years);
+      var pvBulk = totalBulkCost; // paid today
+
+      var savingsPV = pvSingles - pvBulk; // positive => bulk cheaper in PV terms
+
+      var fvSavings = savingsPV > 0 ? savingsPV * Math.pow(1+r, years) : 0;
+
+      var lines = [];
+      lines.push('<strong>Inputs</strong>');
+      lines.push('Time horizon: ' + years + ' years; Uses/year: ' + usesPerYear + ' (total uses: ' + totalUses + ')');
+      lines.push('Cost per use — single: $' + fmt(costPerUseSingle) + ', pack: $' + fmt(costPerUsePack));
+      lines.push('Packs needed: ' + packsNeeded + ', Pack total cost: $' + fmt(totalBulkCost));
+      lines.push('<strong>Present-value comparison (rate ' + ratePct + '%)</strong>');
+      lines.push('PV of buying singles over time: $' + fmt(pvSingles));
+      lines.push('Cost of buying bulk today: $' + fmt(pvBulk));
+
+      if(savingsPV > 0){
+        lines.push('<strong>Conclusion: Buying bulk is cheaper by PV $' + fmt(savingsPV) + '</strong>');
+        lines.push('If you invest that PV saving at ' + ratePct + '% for ' + years + ' years it would grow to $' + fmt(fvSavings));
+      } else if(savingsPV < 0){
+        lines.push('<strong>Conclusion: Buying singles is cheaper by PV $' + fmt(-savingsPV) + '</strong>');
+      } else {
+        lines.push('<strong>Conclusion: Costs are approximately equal on a PV basis.</strong>');
+      }
+
+      lines.push('<em>Notes:</em> This is a simplified model. It assumes bulk is purchased up-front and that single-item purchases are roughly evenly spread across each year. Adjust inputs to match your real purchasing cadence.');
+
+      document.getElementById('result').innerHTML = lines.join('<br>');
+    });
+  </script>
+</body>
+</html>
