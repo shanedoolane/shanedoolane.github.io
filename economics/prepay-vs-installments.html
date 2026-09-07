@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Prepay (Discounted) vs Installments + Invest — Calculator</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:20px;max-width:760px}
+    label{display:block;margin-top:10px}
+    input[type=number]{width:140px}
+    .row{display:flex;gap:12px;align-items:center}
+    .result{margin-top:18px;padding:12px;border:1px solid #ddd;border-radius:6px;background:#fafafa}
+  </style>
+</head>
+<body>
+  <h1>Prepay vs Installments — Calculator</h1>
+  <nav>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Economics</a>
+  </nav>
+
+  <p>Many recurring services offer a discount if you pay upfront in a lump sum (e.g. annually) instead of paying in smaller installments (e.g. monthly). This calculator compares the present value of both payment plans so you can see which is actually cheaper once you account for what your money could otherwise earn if invested.</p>
+  <p><em>Example:</em> a service costs $4,511 billed once per period, or $414.83 billed in 12 installments per period (totalling $4,977.96) — enter those numbers below to compare.</p>
+
+  <form id="calc">
+    <fieldset>
+      <legend>Lump-sum plan</legend>
+      <label>Lump-sum price (paid at the start of each period): $ <input type="number" step="0.01" id="lumpPrice" value="4511"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Installment plan</legend>
+      <label>Installment price (paid at the start of each installment): $ <input type="number" step="0.01" id="installPrice" value="414.83"></label>
+      <label>Installments per period: <input type="number" step="1" id="installsPerPeriod" value="12"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Time & Finance</legend>
+      <label>Number of periods (e.g. years): <input type="number" step="1" id="periods" value="3"></label>
+      <label>Discount / investment return rate (annual %): <input type="number" step="0.01" id="rate" value="5"></label>
+    </fieldset>
+
+    <p><button type="button" id="run">Calculate</button></p>
+  </form>
+
+  <div class="result" id="result" aria-live="polite"></div>
+
+  <script>
+    function pvOfPayments(payment, r, n){
+      // present value of n payments of `payment`, one per compounding step, first paid immediately (t=0)
+      if(n <= 0) return 0;
+      if(r === 0) return payment * n;
+      var sum = 0;
+      for(var t = 0; t < n; t++){
+        sum += Math.pow(1+r, -t);
+      }
+      return payment * sum;
+    }
+
+    function fmt(n){ return (Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+    document.getElementById('run').addEventListener('click', function(){
+      var lumpPrice = parseFloat(document.getElementById('lumpPrice').value)||0;
+      var installPrice = parseFloat(document.getElementById('installPrice').value)||0;
+      var installsPerPeriod = parseFloat(document.getElementById('installsPerPeriod').value)||1;
+      var periods = parseFloat(document.getElementById('periods').value)||1;
+      var ratePct = parseFloat(document.getElementById('rate').value)||0;
+      var r = ratePct/100;
+
+      // period-level discount rate compounded once per period
+      var rPerInstall = Math.pow(1+r, 1/installsPerPeriod) - 1;
+
+      var totalLumpPayments = periods; // one lump payment per period, at start of period
+      var totalInstallPayments = periods * installsPerPeriod;
+
+      var pvLump = pvOfPayments(lumpPrice, r, totalLumpPayments);
+      var pvInstall = pvOfPayments(installPrice, rPerInstall, totalInstallPayments);
+
+      var nominalLump = lumpPrice * periods;
+      var nominalInstall = installPrice * totalInstallPayments;
+
+      var savingsPV = pvInstall - pvLump; // positive => lump-sum is cheaper in PV terms
+
+      var fvSavings = Math.abs(savingsPV) * Math.pow(1+r, periods);
+
+      var lines = [];
+      lines.push('<strong>Inputs</strong>');
+      lines.push('Periods: ' + periods + ', Installments/period: ' + installsPerPeriod + ' (total installments: ' + totalInstallPayments + ')');
+      lines.push('<strong>Nominal totals (no discounting)</strong>');
+      lines.push('Lump-sum total: $' + fmt(nominalLump));
+      lines.push('Installment total: $' + fmt(nominalInstall));
+      lines.push('<strong>Present-value comparison (rate ' + ratePct + '%)</strong>');
+      lines.push('PV of lump-sum plan: $' + fmt(pvLump));
+      lines.push('PV of installment plan: $' + fmt(pvInstall));
+
+      if(savingsPV > 0){
+        lines.push('<strong>Conclusion: Paying lump-sum is cheaper by PV $' + fmt(savingsPV) + '</strong>');
+        lines.push('If invested at ' + ratePct + '% for ' + periods + ' period(s), that saving would grow to $' + fmt(fvSavings));
+      } else if(savingsPV < 0){
+        lines.push('<strong>Conclusion: Paying in installments (and investing the rest) is cheaper by PV $' + fmt(-savingsPV) + '</strong>');
+        lines.push('If invested at ' + ratePct + '% for ' + periods + ' period(s), that saving would grow to $' + fmt(fvSavings));
+      } else {
+        lines.push('<strong>Conclusion: Costs are approximately equal on a PV basis.</strong>');
+      }
+
+      lines.push('<em>Notes:</em> This assumes the lump-sum is paid at the start of each period and installments are paid at the start of each installment, with money not yet spent earning the given return rate. Adjust the rate to reflect your actual investment return or cost of capital.');
+
+      document.getElementById('result').innerHTML = lines.join('<br>');
+    });
+  </script>
+</body>
+</html>
