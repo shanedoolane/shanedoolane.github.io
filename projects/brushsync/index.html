@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A single-specimen investigation of a Philips BrushSync NFC tag: runtime accounting, authenticated edits, persistence, and replacement-warning behavior.">
+  <title>where a toothbrush head remembers its age</title>
+  <style>
+    img { max-width: 100%; height: auto; }
+    figure { margin-left: 0; margin-right: 0; }
+    .table-scroll, pre { overflow-x: auto; }
+    th, td { text-align: left; vertical-align: top; padding: 0.25em 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>where a toothbrush head remembers its age</h1>
+  <nav aria-label="Main navigation">
+    <a href="../../index.html">Home</a>
+    <a href="../../about/index.html">About</a>
+    <a href="../index.html">Projects</a>
+    <a href="../../economics/index.html">Economics</a>
+  </nav>
+  <main>
+    <article>
+      <p>A replaceable toothbrush head is a surprisingly interesting embedded-system boundary.
+      The bristles wear out, but a tiny passive NFC tag carries an electronic record of use.
+      I wanted to know what that record actually contained: a session count, elapsed runtime,
+      a fixed identifier, or something harder to interpret.</p>
+
+      <p>I extracted the tag from a Philips Premium White brush head, read it with a Proxmark3,
+      and compared its memory before and after running the handle. Once a likely runtime
+      field emerged, I made two controlled, authenticated edits and checked what happened
+      when the tag went back to the toothbrush.</p>
+
+      <p><strong>The short version:</strong> on this specimen, two bytes behave like a
+      little-endian runtime accumulator. A reported 160-second run added exactly 160 ticks.
+      Lowering that field persisted, and subsequent operation accumulated from the edited
+      value. After zeroing it, I no longer observed the brush-head replacement light that
+      had appeared with the high value. That is a change to recorded usage and observed
+      warning behavior, not a factory reset or a reversal of physical wear.</p>
+
+      <h2 id="setup">the bench setup matters</h2>
+
+      <p>The handle was a <strong>Philips Sonicare 9900 Prestige</strong>. Its base is marked
+      <code>HX999B</code>. The tag came from a Premium White
+      head. Only one tag and one handle were tested; handle firmware and app version were
+      not recorded.</p>
+
+      <figure>
+        <a href="images/handle-label.jpg"><img src="images/handle-label.jpg" width="420" height="560" alt="Base of the Philips handle marked HX999B, with the second line of identifying markings masked." loading="lazy"></a>
+        <figcaption>The physical handle label.</figcaption>
+      </figure>
+
+      <p><strong>For every handle trial, the extracted tag was held with putty around the
+      bare handle's drive shaft. No brush head was attached.</strong> All motor runs used
+      White+ mode. Runs shorter than the full 2-minute-40-second session were stopped by
+      pressing the power button. These were unloaded bench runs, not toothbrushing trials.</p>
+
+      <p>This distinction changes what the experiment can establish. The readable record
+      changed even with no bristles brushing teeth. In this setup, it tracks operation,
+      not a direct measurement of bristle wear. It does not establish how pressure, load,
+      or other modes might affect accounting during normal use.</p>
+
+      <figure>
+        <a href="images/tag-on-handle.jpg"><img src="images/tag-on-handle.jpg" width="420" height="560" alt="Extracted ring-shaped NFC tag held by yellow putty around the exposed drive shaft, with no brush head attached." loading="lazy"></a>
+        <figcaption>The actual trial arrangement: tag plus putty on the handle, with the drive shaft exposed.</figcaption>
+      </figure>
+      <figure>
+        <a href="images/tag-size.jpg"><img src="images/tag-size.jpg" width="640" height="480" alt="Small circular copper antenna and chip beside a generic brush head on ruled paper." loading="lazy"></a>
+        <figcaption>The extracted Premium White tag beside a generic head for size comparison. The generic head was not fitted during the trials.</figcaption>
+      </figure>
+      <details>
+        <summary>another view of the comparison head</summary>
+        <figure>
+          <a href="images/generic-head.jpg"><img src="images/generic-head.jpg" width="300" height="400" alt="Packaged generic replacement brush head used as a photographic comparison, not in the motor trials." loading="lazy"></a>
+          <figcaption>The comparison head, supplied without the tracking tag. This photograph is context, not evidence of a generic-head compatibility test.</figcaption>
+        </figure>
+      </details>
+
+      <h2 id="reader">reading beyond the phone-facing URL</h2>
+
+      <p>The Proxmark3 identified the chip as an <strong>NXP NTAG213C</strong>
+      (<code>NT2H1311C1DTL</code>), an ISO 14443-A NFC tag with a seven-byte UID.
+      Its <code>GET_VERSION</code> response was <code>00 04 04 02 01 01 0F 03</code>.
+      The device uses four-byte pages, not a sector layout.</p>
+
+      <figure>
+        <a href="images/tag-on-reader.jpg"><img src="images/tag-on-reader.jpg" width="640" height="480" alt="Extracted tag resting on the Proxmark3 high-frequency reader antenna." loading="lazy"></a>
+        <figcaption>The same extracted tag on the reader's HF antenna for a memory capture.</figcaption>
+      </figure>
+
+      <p>The capability container at page <code>0x03</code> was
+      <code>E1 10 12 00</code>, advertising 144 bytes of user memory at pages
+      <code>0x04</code> through <code>0x27</code>. The early pages contain an ordinary
+      NDEF URI record pointing to <code>https://www.philips.com/nfcbrushheadtap</code>.
+      The URI prefix comes from identifier <code>0x02</code>; the record terminates
+      at page <code>0x0C</code>.</p>
+
+      <p>The interesting state is farther along, outside that NDEF record but still
+      inside user memory. Reading a URL with a phone is not equivalent to inspecting
+      all of the tag's application data.</p>
+
+      <div class="table-scroll" role="region" aria-label="Memory map" tabindex="0">
+        <table>
+          <caption>Observed memory regions; page numbers are hexadecimal.</caption>
+          <thead><tr><th scope="col">Pages</th><th scope="col">Contents</th><th scope="col">Interpretation</th></tr></thead>
+          <tbody>
+            <tr><td><code>00-02</code></td><td>UID, check bytes, internal and static-lock bytes</td><td>Tag identity and manufacturer area</td></tr>
+            <tr><td><code>03-0C</code></td><td>Capability container and Philips URI</td><td>Standard NFC content</td></tr>
+            <tr><td><code>0D-1E</code></td><td>Zero in the captures</td><td>No observed use</td></tr>
+            <tr><td><code>1F-20</code></td><td><code>00 01 06 00</code>, <code>00 00 01 02</code></td><td>Undecoded application data</td></tr>
+            <tr><td><code>21-23</code></td><td>Printable data; specimen bytes redacted</td><td>Product/manufacturing-like data; exact meaning unverified</td></tr>
+            <tr><td><code>24</code></td><td>Changing bytes 0-1; bytes 2-3 also stored here</td><td>Likely runtime accumulator; neighboring bytes undecoded</td></tr>
+            <tr><td><code>25-27</code></td><td>Additional application state</td><td>Some bytes changed during trials; meanings unknown</td></tr>
+            <tr><td><code>28-2C</code></td><td>Lock/configuration and credential areas</td><td>Not targeted by any write</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="counter">finding the runtime field</h2>
+
+      <p>I saved a JSON and binary dump at each step and compared corresponding four-byte
+      pages. The first seven captures, recorded in the September 30 research notes,
+      preceded any reader-side write. The early runs were not all timed precisely;
+      their filenames saying "cycle" should not be read as proof of a full session.</p>
+
+      <div class="table-scroll" role="region" aria-label="Initial read-only results" tabindex="0">
+        <table>
+          <caption>Initial read-only sequence.</caption>
+          <thead><tr><th scope="col">Observation</th><th scope="col">Page 0x24</th><th scope="col">Bytes 0-1 as little-endian</th><th scope="col">Delta</th></tr></thead>
+          <tbody>
+            <tr><td>Initial capture</td><td><code>92 58 02 01</code></td><td>22,674</td><td>Baseline</td></tr>
+            <tr><td>After first run</td><td><code>99 58 00 01</code></td><td>22,681</td><td>+7</td></tr>
+            <tr><td>Without motor operation</td><td><code>99 58 00 01</code></td><td>22,681</td><td>0</td></tr>
+            <tr><td>After next run</td><td><code>99 58 00 01</code></td><td>22,681</td><td>0</td></tr>
+            <tr><td>After subsequent run</td><td><code>A7 58 00 01</code></td><td>22,695</td><td>+14</td></tr>
+            <tr><td>After approximately 30 seconds</td><td><code>C5 58 00 01</code></td><td>22,725</td><td>+30</td></tr>
+            <tr><td>After approximately 60 seconds</td><td><code>00 59 00 01</code></td><td>22,784</td><td>+59</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The carry is particularly informative: <code>C5 58</code> becomes
+      <code>00 59</code>. Interpreted as little-endian values, that is
+      <code>0x58C5</code> to <code>0x5900</code>, a difference of 59.
+      Together with the +30 result and unchanged no-operation capture, this supports
+      a runtime accumulator whose ticks approximately correspond to seconds.
+      If that interpretation is correct, 22,784 represents 6 hours, 19 minutes,
+      and 44 seconds of recorded operation.</p>
+
+      <p>It is not enough to declare a complete 16-bit format. The first two bytes
+      explain the observed values, but overflow behavior and the meaning of the
+      neighboring bytes remain untested. The zero-delta run also shows why the presence
+      of a run is not, by itself, evidence of a committed runtime update.</p>
+
+      <h3>three numbering systems worth keeping separate</h3>
+      <ul>
+        <li>Tag page: <code>0x24</code>, or decimal <code>36</code>.</li>
+        <li>Tag-memory byte offsets: <code>0x90-0x91</code>.</li>
+        <li>Offsets in these saved binary files: <code>0xC8-0xC9</code>.</li>
+      </ul>
+      <p>Each saved binary is 236 bytes: a 56-byte Proxmark3 metadata header followed
+      by 45 four-byte pages. The page offset is therefore <code>56 + 4 * page</code>.
+      JSON block keys are decimal: <code>blocks["36"]</code> means page
+      <code>0x24</code>, not page <code>0x36</code>. The exported
+      <code>Counter0</code>, <code>Counter1</code>, and <code>Counter2</code> fields
+      stayed at zero and are not this application accumulator.</p>
+
+      <h2 id="access">readable does not mean unprotected</h2>
+
+      <p>The tag allowed unauthenticated reads, but its configuration reported protected
+      writes. Page <code>0x29</code> had <code>AUTH0 = 0x10</code>. At page
+      <code>0x2A</code>, <code>ACCESS = 0x43</code> was decoded by the client as
+      <code>PROT=0</code>, <code>CFGLCK=1</code>, and <code>AUTHLIM=3</code>:
+      write protection, locked configuration, and an authentication-attempt limit.
+      The remaining failed-attempt budget was not established.</p>
+
+      <p>The local Proxmark3 source already contains a Philips-specific credential
+      generator, <code>ul_ev1_pwdgenG</code>, credited to
+      <a href="https://gist.github.com/atc1441/41af75048e4c22af1f5f0d4c1d94bb56">ATC1441's published implementation</a>.
+      It uses CRC calculations over the UID and ten readable manufacturing-string
+      bytes. The client reads pages <code>0x21-0x23</code> and takes ten bytes
+      beginning at page <code>0x21</code>, byte 2. The specimen's UID and manufacturing
+      bytes are withheld because they are inputs to that derivation.</p>
+
+      <p>This derivation is prior art, not a discovery from this investigation.
+      I used only the Philips-specific candidate, verified it with an authenticated
+      read, and then used that verified credential for the writes. No failed
+      authentication or brute-force sequence was observed. Protection was not disabled;
+      no password, PACK, or lock/configuration page was deliberately changed.
+      The specimen's credential and identifying derivation inputs are omitted here.</p>
+
+      <p>A credential derived from readable fields is not a secret from an observer
+      who knows the derivation. However, a successful authenticated write is not
+      evidence that all heads have the same policy, or that arbitrary neighboring
+      edits would be accepted. Silicon originality, write authorization, and integrity
+      of a mutable usage record are different properties.</p>
+
+      <h2 id="edits">two controlled edits, not a whole-tag reset</h2>
+
+      <p>On October 12, I reduced the accumulator by 60 ticks:
+      <code>00 59 00 01</code> became <code>C4 58 00 01</code>, or
+      22,784 to 22,724. A write operates on a whole four-byte page, so the two
+      neighboring bytes were copied from a fresh backup rather than guessed.
+      Two independent unauthenticated readbacks, including a new reader session
+      after the RF field was turned off, confirmed persistence.</p>
+
+      <p>Only binary offsets <code>0xC8</code> and <code>0xC9</code> changed.
+      Every other displayed page and the metadata matched. Putting the tag back on
+      the handle without running the motor did not restore the old value; the dump
+      remained identical. I still observed the brush-head replacement icon/light.
+      A decrease of 60 ticks was not sufficient to remove that indication in this trial.</p>
+
+      <p>The next approximately 30-second run did <em>not</em> produce the predicted
+      increment. It left the accumulator at 22,724 while changing associated state:</p>
+
+      <div class="table-scroll" role="region" aria-label="Unexpected neighboring changes" tabindex="0">
+        <table>
+          <caption>The first short run after the reduction.</caption>
+          <thead><tr><th scope="col">Page</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+          <tbody>
+            <tr><td><code>0x24</code></td><td><code>C4 58 00 01</code></td><td><code>C4 58 02 01</code></td></tr>
+            <tr><td><code>0x25</code></td><td><code>00 00 03 00</code></td><td><code>00 00 04 00</code></td></tr>
+            <tr><td><code>0x26</code></td><td><code>BD A3 2D 00</code></td><td><code>A0 DD 3E 00</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>A second approximately 30-second run then increased the accumulator by 30,
+      to <code>E2 58 02 01</code> (22,754), with only its low byte changing.
+      Across the two runs, the observed total increase was 30, not approximately 60.
+      I did not precisely record the removal delays or capture RF traffic, so I
+      cannot distinguish a deferred write, removal timing, or another accounting rule.
+      I also cannot assign the +30 uniquely to the second run rather than deferred
+      accounting for the first.</p>
+
+      <p>On October 13, the second controlled write zeroed the accumulator:
+      <code>E2 58 02 01</code> became <code>00 00 02 01</code>.
+      The fresh neighboring bytes were now <code>02 01</code>, not the earlier
+      <code>00 01</code>. Again, only the two accumulator bytes changed, and two
+      separate readbacks matched.</p>
+
+      <p>When I mounted the zeroed tag on the handle without running it, I no longer
+      observed the replacement icon/light. The subsequent dump was identical to the
+      zero confirmation: the handle had not visibly reinstated the old count.
+      The warning observations were made directly at the handle, but were not recorded
+      on video and the exact observation window was not measured.</p>
+
+      <p><strong>This supports a relationship between the edited usage field and the
+      observed replacement indication on this setup.</strong> It is not a complete
+      causal isolation: neighboring state had changed between the earlier high-value
+      observation and the zero-value trial, and the handle's internal state was not
+      inspected. There was no high-low-high warning comparison and no measured warning
+      threshold. The result should not be described as proving that these two bytes
+      alone control every replacement warning.</p>
+
+      <h2 id="resumption">does it keep counting after zero?</h2>
+
+      <p>After a reported 30-second run, I left the tag on the upright handle until
+      its lights turned off. I observed no replacement warning at the end of that run.
+      The accumulator became <code>1D 00 02 01</code>, or 29 ticks.
+      Only the low byte changed; all other displayed bytes and metadata were unchanged.</p>
+
+      <p>The 29-tick result is close to the reported 30 seconds, as the earlier
+      59-tick result was close to 60 seconds. These differences do not establish
+      a particular rounding mechanism. Nor does lights-off establish the firmware's
+      sleep state or prove that it is the commit point.</p>
+
+      <p>A fresh baseline confirmed 29 ticks. I then completed one full White+ session,
+      <strong>2 minutes 40 seconds, or 160 seconds</strong>. The next dump read
+      <code>BD 00 02 01</code>, or 189 ticks:</p>
+      <pre><code>before: 1D 00 02 01  ->  29
+after:  BD 00 02 01  -> 189
+delta:                   160 ticks</code></pre>
+
+      <p>Only file offset <code>0xC8</code> changed, from <code>1D</code> to
+      <code>BD</code>. Bytes <code>02 01</code>, every other displayed page, and
+      metadata remained identical. The exact +160 strengthens the seconds
+      interpretation and demonstrates continued accumulation from the edited baseline.</p>
+
+      <p>The duration was reported from the completed session, not independently
+      instrumented.</p>
+
+      <h2 id="app">what the app adds, and what it does not</h2>
+
+      <p>The app showed 179 sessions remaining before the full run and 178 afterward.
+      The baseline screenshot was still syncing at 41%; the post-run screen said
+      Synced. Both showed White+ and Sonicare 9900 Prestige. The head detail screen
+      showed Premium White and the same 178-session estimate.</p>
+
+      <figure>
+        <img src="images/app-before.jpg" width="590" height="200" alt="App device card before the full run: Sonicare 9900 Prestige, White+, syncing at 41 percent, 179 sessions remaining." loading="lazy">
+        <figcaption>Before: 179 sessions remaining, with synchronization still in progress.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/app-after.jpg" width="590" height="200" alt="App device card after the full run: Sonicare 9900 Prestige, White+, Synced, 178 sessions remaining." loading="lazy">
+        <figcaption>After: 178 sessions remaining and completed synchronization.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/app-head.jpg" width="354" height="330" alt="App brush-head detail showing Premium White and 178 sessions remaining." loading="lazy">
+        <figcaption>The brush-head detail agrees with the post-run device card. Screenshots are cropped to the relevant app content.</figcaption>
+      </figure>
+
+      <p>One full session and one displayed-session decrement are consistent, but
+      do not reveal the conversion formula. A physical motor run can update handle
+      or app state as well as tag memory. No artificial-increment experiment with
+      attachment and synchronization but <em>no motor run</em> was performed, so
+      these screenshots do not isolate the accumulator as the app's sole input.</p>
+
+      <h2 id="results">the experimental sequence at a glance</h2>
+
+      <div class="table-scroll" role="region" aria-label="Controlled experiment summary" tabindex="0">
+        <table>
+          <caption>October trials. Attachment means mounting the extracted tag, not fitting a head.</caption>
+          <thead><tr><th scope="col">Step</th><th scope="col">Page 0x24</th><th scope="col">Ticks</th><th scope="col">Key observation</th></tr></thead>
+          <tbody>
+            <tr><td>Pre-edit backup</td><td><code>00 59 00 01</code></td><td>22,784</td><td>Matches final read-only baseline</td></tr>
+            <tr><td>Reduce by 60; two confirmations</td><td><code>C4 58 00 01</code></td><td>22,724</td><td>Only accumulator bytes changed</td></tr>
+            <tr><td>Attachment only</td><td><code>C4 58 00 01</code></td><td>22,724</td><td>Whole dump unchanged; replacement light observed</td></tr>
+            <tr><td>First approximately 30-second run</td><td><code>C4 58 02 01</code></td><td>22,724</td><td>No runtime increment; neighboring state changed</td></tr>
+            <tr><td>Second approximately 30-second run</td><td><code>E2 58 02 01</code></td><td>22,754</td><td>+30; only accumulator low byte changed</td></tr>
+            <tr><td>Fresh pre-zero backup</td><td><code>E2 58 02 01</code></td><td>22,754</td><td>Matches preceding capture</td></tr>
+            <tr><td>Zero; two confirmations</td><td><code>00 00 02 01</code></td><td>0</td><td>Only accumulator bytes changed</td></tr>
+            <tr><td>Attachment only</td><td><code>00 00 02 01</code></td><td>0</td><td>Whole dump unchanged; replacement light absent</td></tr>
+            <tr><td>Reported 30-second run; wait until lights-off</td><td><code>1D 00 02 01</code></td><td>29</td><td>+29; no end-of-run warning observed</td></tr>
+            <tr><td>Fresh full-session baseline</td><td><code>1D 00 02 01</code></td><td>29</td><td>Matches preceding capture</td></tr>
+            <tr><td>Reported full 160-second White+ session</td><td><code>BD 00 02 01</code></td><td>189</td><td>Exact +160; app shows 178 remaining</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="limits">what remains unknown</h2>
+      <ul>
+        <li><strong>Commit timing.</strong> Some runs did not produce the expected increment.
+        No RF trace establishes when or in what order the handle writes the pages.</li>
+        <li><strong>Neighboring fields.</strong> Page <code>0x24</code> bytes 2-3 and pages
+        <code>0x25-0x27</code> are not decoded. An event-related field, timestamp, checksum,
+        or lifecycle flag is a hypothesis, not a finding.</li>
+        <li><strong>Counter width and overflow.</strong> The observed values fit a
+        two-byte accumulator; rollover and possible extensions were not tested.</li>
+        <li><strong>Replacement policy.</strong> The exact threshold, caching behavior,
+        and all inputs to the warning remain unknown.</li>
+        <li><strong>Generality.</strong> The investigation covers one extracted Premium White
+        tag and one HX999B handle in White+ mode, unloaded. No second tag, loaded head,
+        other mode, or other handle establishes transferability.</li>
+        <li><strong>Long-term behavior.</strong> Persistence is demonstrated over the
+        recorded interactions, not over months of normal operation.</li>
+      </ul>
+
+      <p>The highest-value follow-ups would be an independently timed repeat and a recorded,
+      controlled warning comparison. A second specimen would test whether the layout
+      generalizes. None requires pretending that the unresolved short-run results
+      did not happen.</p>
+
+      <h2 id="conclusion">a usage record is not physical wear</h2>
+
+      <p>The most interesting result is not the app's countdown. It is the separation
+      between a consumable's physical condition and its electronic history. In this
+      bench setup, a passive tag continued to receive usage updates without any brush
+      head attached. Its runtime field could be lowered through authenticated access,
+      and subsequent updates started from that edited value rather than visibly
+      restoring the old high count.</p>
+
+      <p>Zeroing was followed by disappearance of the observed replacement light.
+      That supports a change in usage-related warning behavior on this specimen,
+      not proof of a complete lifecycle reset or a universal BrushSync bypass.
+      No bristles were restored, and no conclusion about cleaning effectiveness
+      or safe head-replacement intervals follows from changing memory.</p>
+
+      <p>For an embedded developer, the lesson is methodological as much as architectural:
+      compare complete captures, distinguish page addresses from file offsets, preserve
+      undecoded bytes, separate persistent storage from device behavior, and keep the
+      anomalous results. A few bytes can tell a useful story without telling the whole one.</p>
+
+      <h2 id="provenance">tools, evidence, and references</h2>
+
+      <p>Twenty saved JSON/binary capture pairs underpin this account. All twenty were
+      checked for agreement between the binary page data and the JSON's 45 displayed
+      pages during preparation of this draft. Write verification also compared the
+      metadata and all displayed pages, not just the edited field. Password/PACK
+      placeholders in unauthenticated dumps cannot verify their actual contents.
+      </p>
+
+      <p>Reads used a USB-CDC Proxmark3 and the Iceman client. The recorded hardware
+      query reported <code>PM3 GENERIC</code>, an AT91SAM7S512 Rev A MCU, and client,
+      bootrom, and OS version <code>Iceman/master/e6d7cd1-suspect</code>, built
+      September 30, 2026. The recorded source-tree HEAD was
+      <code>e6d7cd1f9d330b930073f32cda06e308774cd36d</code>.
+      These identify the queried setup.</p>
+
+      <p>Relevant read and analysis commands were <code>hf mfu info</code>,
+      <code>hf mfu dump</code>, and <code>hf mfu pwdgen -r</code>. The latter
+      computes candidate credentials without authenticating or writing. The two
+      actual edits each used a verified credential and an ordinary four-byte write
+      to decimal page 36. Client and firmware write paths were inspected to distinguish
+      a single-page operation from a multi-page payload. This is an experimental
+      account, not a recommendation to alter replacement reminders: authentication
+      limits, locked configuration, and undecoded state make careless writes risky.</p>
+
+      <ul>
+        <li><a href="https://www.nxp.com/docs/en/data-sheet/NTAG213_215_216.pdf">NXP NTAG213/215/216 datasheet</a>:
+        background for page writes and access-control fields. A family reference,
+        not independent confirmation of every NTAG213C detail.</li>
+        <li><a href="https://github.com/RfidResearchGroup/proxmark3/blob/e6d7cd1f9d330b930073f32cda06e308774cd36d/doc/mfu_ndef_format_notes.md">Proxmark3 NFC format notes</a>:
+        the NTAG213C layout is described as inferred from NTAG213.</li>
+        <li><a href="https://gist.github.com/atc1441/41af75048e4c22af1f5f0d4c1d94bb56">ATC1441's Philips credential derivation</a>:
+        existing work credited by Proxmark3.</li>
+        <li><a href="https://github.com/RfidResearchGroup/proxmark3/blob/e6d7cd1f9d330b930073f32cda06e308774cd36d/common/generator.c">Proxmark3 credential generator</a>,
+        <a href="https://github.com/RfidResearchGroup/proxmark3/blob/e6d7cd1f9d330b930073f32cda06e308774cd36d/client/src/cmdhfmfu.c">client commands</a>,
+        and <a href="https://github.com/RfidResearchGroup/proxmark3/blob/e6d7cd1f9d330b930073f32cda06e308774cd36d/armsrc/mifarecmd.c">firmware read/write paths</a>:
+        source references for credential inputs and operation scope.</li>
+      </ul>
+
+      <p>Setup photographs are my own. App screenshots are from this investigation
+      and have been cropped for relevance.</p>
+    </article>
+  </main>
+</body>
+</html>
